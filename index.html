@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>QRGuardian - Supervision</title>
+    <!-- PWA -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="QRGuardian Supervision">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
+    <!-- Fonts & Scripts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* ===== VARIABLES ===== */
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e3a8a;
+            --secondary: #1e293b;
+            --surface: #0f172a;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #334155;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --spinner-color: #ffffff;
+            --modal-overlay: rgba(0,0,0,0.7);
+        }
+        /* Thème clair */
+        body.light-theme {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #f1f5f9;
+            --surface: #ffffff;
+            --text: #0f172a;
+            --text-muted: #475569;
+            --success: #059669;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --border: #cbd5e1;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --spinner-color: #0f172a;
+            --modal-overlay: rgba(0,0,0,0.5);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 2rem;
+            transition: background-color 0.2s, color 0.2s;
+            min-height: 100vh;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        h1 { font-size: 2rem; display: flex; align-items: center; gap: 0.5rem; }
+        .header-right {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            background: var(--secondary);
+            color: var(--text);
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+            position: relative;
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .btn-primary { background: var(--primary); border-color: var(--primary); color: white; }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+        .btn-success { background: var(--success); border-color: var(--success); color: white; }
+        .btn-warning { background: var(--warning); border-color: var(--warning); color: white; }
+        .btn-danger { background: var(--danger); border-color: var(--danger); color: white; }
+        .btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: var(--spinner-color);
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .btn .spinner { margin-right: 0.5rem; }
+
+        /* Statistiques */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .stat-icon { font-size: 2rem; color: var(--primary); }
+        .stat-content h3 { font-size: 0.875rem; color: var(--text-muted); }
+        .stat-content p { font-size: 2rem; font-weight: bold; line-height: 1.2; }
+
+        /* Graphique */
+        .chart-container {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            margin-bottom: 2rem;
+            height: 300px;
+            position: relative;
+        }
+
+        /* Filtres */
+        .filters {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+            align-items: center;
+        }
+        .filter-group {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .filter-tab {
+            padding: 0.5rem 1.5rem;
+            background: var(--secondary);
+            border: 1px solid var(--border);
+            border-radius: 2rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filter-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+        .filter-tab:hover { background: var(--primary-dark); color: white; }
+        .search-box {
+            flex: 1;
+            display: flex;
+            background: var(--secondary);
+            border: 1px solid var(--border);
+            border-radius: 2rem;
+            padding: 0.5rem 1rem;
+            align-items: center;
+            min-width: 250px;
+        }
+        .search-box i { color: var(--text-muted); margin-right: 0.5rem; }
+        .search-box input {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            width: 100%;
+            outline: none;
+        }
+        .search-box input::placeholder { color: var(--text-muted); }
+
+        /* Boutons d'action */
+        .actions {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        /* Tableau */
+        .table-container {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+            margin-bottom: 2rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1000px;
+        }
+        th {
+            text-align: left;
+            padding: 1rem;
+            background: var(--surface);
+            color: var(--text-muted);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+        }
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text); /* forcé pour suivre le thème */
+        }
+        tr:last-child td { border-bottom: none; }
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-success { background: rgba(16,185,129,0.2); color: var(--success); }
+        .badge-danger { background: rgba(239,68,68,0.2); color: var(--danger); }
+        .badge-warning { background: rgba(245,158,11,0.2); color: var(--warning); }
+        .badge-info { background: rgba(59,130,246,0.2); color: #3b82f6; }
+        
+        /* Badges pour les types de QR (couleurs distinctes) */
+        .badge-standard { background: rgba(107, 114, 128, 0.2); color: #6b7280;}
+        .badge-vip { background: rgba(245, 158, 11, 0.2); color: #f59e0b;}
+        .badge-vvip { background: rgba(139, 92, 246, 0.2); color: #8b5cf6;}
+        .badge-premium { background: rgba(13, 148, 136, 0.2); color: #0d9488;}
+        .badge-regular { background: rgba(219, 39, 119, 0.2); color: #db2777;}
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .page-btn {
+            padding: 0.5rem 1rem;
+            background: var(--secondary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            cursor: pointer;
+            color: var(--text);
+        }
+        .page-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: var(--card-bg);
+            border-left: 4px solid var(--success);
+            border-radius: 0.5rem;
+            padding: 1rem 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            max-width: 400px;
+        }
+        .notification.show { transform: translateX(0); }
+        .notification.error { border-left-color: var(--danger); }
+        .notification.info { border-left-color: var(--primary); }
+        .notification i { font-size: 1.5rem; }
+        .notification-content { flex: 1; }
+        .notification-title { font-weight: 600; margin-bottom: 0.25rem; }
+        .notification-message { font-size: 0.875rem; color: var(--text-muted); }
+
+        /* Message de connexion */
+        .connection-status {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 2rem;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .connection-status.online { color: var(--success); }
+        .connection-status.offline { color: var(--danger); }
+
+        /* ===== MODALE DE CONFIRMATION ===== */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--modal-overlay);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            padding: 2rem;
+            max-width: 450px;
+            width: 90%;
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transform: scale(0.9);
+            transition: transform 0.2s ease;
+        }
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+        .modal-icon {
+            font-size: 3rem;
+            color: var(--warning);
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-align: center;
+            color: var(--text);
+        }
+        .modal-message {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            text-align: center;
+            line-height: 1.5;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+        .modal-actions .btn {
+            min-width: 120px;
+        }
+        .modal-actions .btn-danger {
+            background: var(--danger);
+            border-color: var(--danger);
+        }
+        .modal-actions .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body { padding: 1rem; }
+            h1 { font-size: 1.5rem; }
+            .stats { grid-template-columns: 1fr; }
+            .stat-card { padding: 1rem; }
+            .stat-content p { font-size: 1.3rem; }
+            .actions .btn { flex: 1 1 auto; min-width: 120px; }
+            .filter-group { justify-content: center; }
+            .search-box { min-width: 100%; }
+        }
+        @media (max-width: 480px) {
+            .header-right { flex-direction: column; align-items: stretch; }
+            .btn { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-chart-line"></i> Supervision QRGuardian</h1>
+            <div class="header-right">
+                <span id="lastUpdate"></span>
+                <span class="connection-status" id="connectionStatus"><i class="fas fa-wifi"></i> En ligne</span>
+                <button class="btn" id="themeToggle"><i class="fas fa-moon"></i> Thème</button>
+                <button class="btn" id="refreshBtn"><i class="fas fa-sync-alt"></i> Actualiser</button>
+            </div>
+        </header>
+
+        <!-- Statistiques -->
+        <div class="stats">
+            <div class="stat-card">
+                <i class="fas fa-qrcode stat-icon"></i>
+                <div class="stat-content">
+                    <h3>Total scans</h3>
+                    <p id="totalScans">0</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-check-circle stat-icon" style="color: var(--success);"></i>
+                <div class="stat-content">
+                    <h3>Valides</h3>
+                    <p id="validScans">0</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-times-circle stat-icon" style="color: var(--danger);"></i>
+                <div class="stat-content">
+                    <h3>Invalides</h3>
+                    <p id="invalidScans">0</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-exclamation-triangle stat-icon" style="color: var(--warning);"></i>
+                <div class="stat-content">
+                    <h3>Doublons</h3>
+                    <p id="duplicateScans">0</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-money-bill-wave stat-icon" style="color: var(--primary);"></i>
+                <div class="stat-content">
+                    <h3>Montant total</h3>
+                    <p id="totalAmount">0 FCFA</p>
+                </div>
+            </div>
+            <!-- Carte : Stockage utilisé -->
+            <div class="stat-card" id="storageInfo">
+                <i class="fas fa-database stat-icon"></i>
+                <div class="stat-content">
+                    <h3>Stockage utilisé</h3>
+                    <p>Chargement...</p>
+                    <small id="storageRows">-</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Graphique -->
+        <div class="chart-container">
+            <canvas id="typeChart"></canvas>
+        </div>
+
+        <!-- Filtres -->
+        <div class="filters">
+            <div class="filter-group">
+                <div class="filter-tab active" data-filter="all">Tous</div>
+                <div class="filter-tab" data-filter="valid">Valides</div>
+                <div class="filter-tab" data-filter="invalid">Invalides</div>
+                <div class="filter-tab" data-filter="duplicate">Doublons</div>
+                <div class="filter-tab" data-filter="connection">Connexions</div>
+            </div>
+            <div class="filter-group" id="typeFilters">
+                <!-- Les filtres de type seront générés dynamiquement -->
+            </div>
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="Rechercher (événement, lieu, ID...)">
+            </div>
+        </div>
+
+        <!-- Boutons d'action -->
+        <div class="actions">
+            <button class="btn btn-primary" id="exportCSV"><i class="fas fa-file-csv"></i> Exporter CSV</button>
+            <button class="btn btn-success" id="generateReport"><i class="fas fa-file-pdf"></i> Rapport PDF</button>
+            <button class="btn btn-warning" id="saveLocalBtn"><i class="fas fa-database"></i> Sauvegarder local</button>
+            <button class="btn btn-secondary" id="loadLocalBtn"><i class="fas fa-cloud-download-alt"></i> Charger local</button>
+            <button class="btn btn-danger" id="deleteAllBtn"><i class="fas fa-trash"></i> Effacer Supabase</button>
+            <button class="btn btn-danger" id="clearLocalBtn"><i class="fas fa-eraser"></i> Vider local</button>
+            <button class="btn btn-primary" id="exportChartBtn"><i class="fas fa-image"></i> Graphique JPG</button>
+        </div>
+
+        <!-- Tableau des scans -->
+        <div class="table-container">
+            <table id="scansTable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Événement</th>
+                        <th>Type</th>
+                        <th>Prix</th>
+                        <th>Lieu</th>
+                        <th>Statut</th>
+                        <th>ID</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- Les lignes seront injectées ici -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+
+    <!-- Modale de confirmation -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal">
+            <div class="modal-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="modal-title" id="modalTitle">Confirmation</div>
+            <div class="modal-message" id="modalMessage">Êtes-vous sûr ?</div>
+            <div class="modal-actions">
+                <button class="btn" id="modalCancel">Annuler</button>
+                <button class="btn btn-danger" id="modalConfirm">Confirmer</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== CONFIGURATION ====================
+        const SUPABASE_URL = 'https://pfdhfkbuhaecaakvyagp.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmZGhma2J1aGFlY2Fha3Z5YWdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDM0NzksImV4cCI6MjA4ODgxOTQ3OX0.bMZ9Y61ZWnMCXQEXYtAoYOP2sJKxpBE2L59T2nCU4EY';
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // ==================== ÉTAT ====================
+        let allScans = [];
+        let filteredScans = [];
+        let currentFilter = 'all';
+        let currentTypeFilter = 'all';
+        let searchTerm = '';
+        let currentPage = 1;
+        const rowsPerPage = 10;
+        let typeChart = null;
+        let isLoading = false;
+
+        // ==================== MODALE ====================
+        const modalOverlay = document.getElementById('confirmModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalConfirm = document.getElementById('modalConfirm');
+        const modalCancel = document.getElementById('modalCancel');
+
+        function showConfirmModal(title, message, onConfirm) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            modalOverlay.classList.add('active');
+            
+            const confirmHandler = () => {
+                modalOverlay.classList.remove('active');
+                modalConfirm.removeEventListener('click', confirmHandler);
+                modalCancel.removeEventListener('click', cancelHandler);
+                onConfirm();
+            };
+            const cancelHandler = () => {
+                modalOverlay.classList.remove('active');
+                modalConfirm.removeEventListener('click', confirmHandler);
+                modalCancel.removeEventListener('click', cancelHandler);
+            };
+            
+            modalConfirm.addEventListener('click', confirmHandler, { once: true });
+            modalCancel.addEventListener('click', cancelHandler, { once: true });
+            
+            // Fermer en cliquant sur l'overlay (optionnel)
+            modalOverlay.addEventListener('click', function closeOnOverlay(e) {
+                if (e.target === modalOverlay) {
+                    modalOverlay.classList.remove('active');
+                    modalConfirm.removeEventListener('click', confirmHandler);
+                    modalCancel.removeEventListener('click', cancelHandler);
+                    modalOverlay.removeEventListener('click', closeOnOverlay);
+                }
+            }, { once: true });
+        }
+
+        // ==================== GESTION DU THÈME ====================
+        function initTheme() {
+            const savedTheme = localStorage.getItem('supervisor_theme') || 'dark';
+            document.body.classList.toggle('light-theme', savedTheme === 'light');
+            updateThemeIcon();
+        }
+        function toggleTheme() {
+            const isLight = document.body.classList.contains('light-theme');
+            document.body.classList.toggle('light-theme', !isLight);
+            localStorage.setItem('supervisor_theme', !isLight ? 'light' : 'dark');
+            updateThemeIcon();
+            if (typeChart) updateChart();
+        }
+        function updateThemeIcon() {
+            const btn = document.getElementById('themeToggle');
+            const icon = btn.querySelector('i');
+            const isLight = document.body.classList.contains('light-theme');
+            icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+        }
+
+        // ==================== GESTION DE LA CONNEXION ====================
+        function updateConnectionStatus() {
+            const statusEl = document.getElementById('connectionStatus');
+            if (navigator.onLine) {
+                statusEl.className = 'connection-status online';
+                statusEl.innerHTML = '<i class="fas fa-wifi"></i> En ligne';
+            } else {
+                statusEl.className = 'connection-status offline';
+                statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Hors ligne';
+            }
+        }
+        window.addEventListener('online', () => {
+            updateConnectionStatus();
+            showNotification('Connexion rétablie', 'Tentative de rechargement des données...', 'info');
+            loadScans();
+        });
+        window.addEventListener('offline', () => {
+            updateConnectionStatus();
+            showNotification('Connexion perdue', 'Les données affichées peuvent être obsolètes.', 'error');
+        });
+
+        // ==================== SPINNERS ====================
+        function setButtonLoading(button, loading) {
+            if (loading) {
+                button.disabled = true;
+                const originalHTML = button.innerHTML;
+                button.dataset.originalHTML = originalHTML;
+                button.innerHTML = '<span class="spinner"></span> Chargement...';
+            } else {
+                button.disabled = false;
+                if (button.dataset.originalHTML) {
+                    button.innerHTML = button.dataset.originalHTML;
+                }
+            }
+        }
+
+        // ==================== BASE DE DONNÉES LOCALE (IndexedDB) ====================
+        class LocalDB {
+            static DB_NAME = 'QRSupervisorDB';
+            static STORE_NAME = 'scans';
+
+            static async open() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.DB_NAME, 1);
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+                            db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+                        }
+                    };
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            static async saveScans(scans) {
+                const db = await this.open();
+                const tx = db.transaction(this.STORE_NAME, 'readwrite');
+                const store = tx.objectStore(this.STORE_NAME);
+                await new Promise((resolve, reject) => {
+                    const clearReq = store.clear();
+                    clearReq.onsuccess = resolve;
+                    clearReq.onerror = reject;
+                });
+                for (const scan of scans) {
+                    store.put(scan);
+                }
+                return new Promise((resolve, reject) => {
+                    tx.oncomplete = resolve;
+                    tx.onerror = reject;
+                });
+            }
+
+            static async loadScans() {
+                const db = await this.open();
+                const tx = db.transaction(this.STORE_NAME, 'readonly');
+                const store = tx.objectStore(this.STORE_NAME);
+                return new Promise((resolve, reject) => {
+                    const request = store.getAll();
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            static async clear() {
+                const db = await this.open();
+                const tx = db.transaction(this.STORE_NAME, 'readwrite');
+                const store = tx.objectStore(this.STORE_NAME);
+                return new Promise((resolve, reject) => {
+                    const request = store.clear();
+                    request.onsuccess = resolve;
+                    request.onerror = reject;
+                });
+            }
+        }
+
+        // ==================== NOTIFICATIONS ====================
+        function showNotification(title, message, type = 'success') {
+            const notif = document.createElement('div');
+            notif.className = `notification ${type}`;
+            let icon = 'check-circle';
+            if (type === 'error') icon = 'exclamation-circle';
+            else if (type === 'info') icon = 'info-circle';
+            notif.innerHTML = `
+                <i class="fas fa-${icon}"></i>
+                <div class="notification-content">
+                    <div class="notification-title">${title}</div>
+                    <div class="notification-message">${message}</div>
+                </div>
+            `;
+            document.body.appendChild(notif);
+            setTimeout(() => notif.classList.add('show'), 10);
+            setTimeout(() => {
+                notif.classList.remove('show');
+                setTimeout(() => notif.remove(), 300);
+            }, 5000);
+        }
+
+        // ==================== CHARGEMENT DES DONNÉES ====================
+        async function loadScans(showLoadingSpinner = true) {
+            if (isLoading) return;
+            isLoading = true;
+            const refreshBtn = document.getElementById('refreshBtn');
+            if (showLoadingSpinner) setButtonLoading(refreshBtn, true);
+            try {
+                const { data, error } = await supabaseClient
+                    .from('scans')
+                    .select('*')
+                    .order('timestamp', { ascending: false });
+                if (error) throw error;
+                
+                // Normalisation des types en minuscules
+                allScans = (data || []).map(s => {
+                    if (s.qr_type) {
+                        s.qr_type = s.qr_type.toLowerCase();
+                    } else {
+                        s.qr_type = 'standard';
+                    }
+                    return s;
+                });
+                
+                applyFilters();
+                updateStats();
+                renderTable();
+                updateChart();
+                generateTypeFilters();
+                fetchStorageInfo();
+                if (showLoadingSpinner) showNotification('Données chargées', `${allScans.length} scans récupérés.`, 'success');
+            } catch (e) {
+                console.error('Erreur chargement scans:', e);
+                showNotification('Erreur', 'Impossible de charger les données', 'error');
+            } finally {
+                isLoading = false;
+                if (showLoadingSpinner) setButtonLoading(refreshBtn, false);
+            }
+        }
+
+        function setupRealtime() {
+            supabaseClient
+                .channel('scans-channel')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'scans' }, payload => {
+                    const newScan = payload.new;
+                    if (newScan.qr_type) {
+                        newScan.qr_type = newScan.qr_type.toLowerCase();
+                    } else {
+                        newScan.qr_type = 'standard';
+                    }
+                    allScans.unshift(newScan);
+                    applyFilters();
+                    updateStats();
+                    renderTable();
+                    updateChart();
+                    generateTypeFilters();
+                    fetchStorageInfo();
+                })
+                .subscribe();
+        }
+
+        // ==================== FILTRES ====================
+        function applyFilters() {
+            let filtered = allScans;
+            if (currentFilter === 'valid') {
+                filtered = filtered.filter(s => s.valid && !s.is_duplicate);
+            } else if (currentFilter === 'invalid') {
+                filtered = filtered.filter(s => !s.valid && !s.is_duplicate && !s.is_connection);
+            } else if (currentFilter === 'duplicate') {
+                filtered = filtered.filter(s => s.is_duplicate);
+            } else if (currentFilter === 'connection') {
+                filtered = filtered.filter(s => s.is_connection);
+            }
+            if (currentTypeFilter !== 'all') {
+                filtered = filtered.filter(s => s.qr_type === currentTypeFilter);
+            }
+            if (searchTerm) {
+                const term = searchTerm.toLowerCase();
+                filtered = filtered.filter(s => 
+                    (s.event_name && s.event_name.toLowerCase().includes(term)) ||
+                    (s.location && s.location.toLowerCase().includes(term)) ||
+                    (s.event_id && s.event_id.toLowerCase().includes(term)) ||
+                    (s.security_code && s.security_code.toLowerCase().includes(term))
+                );
+            }
+            filteredScans = filtered;
+            currentPage = 1;
+        }
+
+        function generateTypeFilters() {
+            const types = new Set();
+            allScans.forEach(s => { if (s.qr_type) types.add(s.qr_type); });
+            const typeList = Array.from(types).sort();
+            const container = document.getElementById('typeFilters');
+            if (!container) return;
+            let html = '<div class="filter-tab" data-type="all">Tous types</div>';
+            typeList.forEach(type => {
+                html += `<div class="filter-tab" data-type="${type}">${type}</div>`;
+            });
+            container.innerHTML = html;
+            container.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.addEventListener('click', e => {
+                    container.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    currentTypeFilter = e.target.dataset.type;
+                    applyFilters();
+                    renderTable();
+                });
+            });
+            const defaultTab = container.querySelector('[data-type="all"]');
+            if (defaultTab) defaultTab.classList.add('active');
+        }
+
+        // ==================== STATISTIQUES ====================
+        function formatNumber(x) {
+            return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        }
+        function updateStats() {
+            document.getElementById('totalScans').textContent = allScans.length;
+            const valid = allScans.filter(s => s.valid && !s.is_duplicate).length;
+            const invalid = allScans.filter(s => !s.valid && !s.is_duplicate && !s.is_connection).length;
+            const duplicate = allScans.filter(s => s.is_duplicate).length;
+            document.getElementById('validScans').textContent = valid;
+            document.getElementById('invalidScans').textContent = invalid;
+            document.getElementById('duplicateScans').textContent = duplicate;
+
+            let total = 0;
+            allScans.forEach(s => {
+                if (s.price) {
+                    const match = s.price.match(/(\d+(?:[.,]\d+)?)/);
+                    if (match) total += parseFloat(match[1].replace(',', '.'));
+                }
+            });
+            document.getElementById('totalAmount').textContent = formatNumber(Math.round(total)) + ' FCFA';
+            document.getElementById('lastUpdate').textContent = 'Dernière mise à jour : ' + new Date().toLocaleTimeString();
+        }
+
+        // ==================== STOCKAGE ====================
+        async function fetchStorageInfo() {
+            try {
+                const { data, error } = await supabaseClient.rpc('get_table_size');
+                if (error) throw error;
+                const sizeBytes = data.table_size;
+                const rows = data.rows;
+                const sizeKB = (sizeBytes / 1024).toFixed(2);
+                const sizeMB = (sizeBytes / (1024*1024)).toFixed(2);
+                document.querySelector('#storageInfo p').textContent = `${sizeKB} Ko (${sizeMB} Mo)`;
+                document.querySelector('#storageRows').textContent = `${rows} lignes`;
+            } catch (e) {
+                console.error('Erreur récupération taille stockage:', e);
+                document.querySelector('#storageInfo p').textContent = 'Non disponible';
+                document.querySelector('#storageRows').textContent = 'Vérifier fonction SQL';
+            }
+        }
+
+        // ==================== GRAPHIQUE ====================
+        function updateChart() {
+            const typeCounts = {};
+            allScans.forEach(s => {
+                const type = s.qr_type || 'standard';
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+            const labels = Object.keys(typeCounts);
+            const data = Object.values(typeCounts);
+            const ctx = document.getElementById('typeChart').getContext('2d');
+            if (typeChart) typeChart.destroy();
+            const textColor = getComputedStyle(document.body).getPropertyValue('--text').trim();
+            const gridColor = getComputedStyle(document.body).getPropertyValue('--border').trim();
+            typeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Nombre de scans',
+                        data: data,
+                        backgroundColor: 'rgba(37, 99, 235, 0.7)',
+                        borderColor: '#2563eb',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: textColor } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: textColor } },
+                        x: { grid: { color: gridColor }, ticks: { color: textColor } }
+                    }
+                }
+            });
+        }
+
+        // ==================== TABLEAU ====================
+        function getTypeBadgeClass(type) {
+            const map = {
+                'standard': 'badge-standard',
+                'vip': 'badge-vip',
+                'vvip': 'badge-vvip',
+                'premium': 'badge-premium',
+                'regular': 'badge-regular'
+            };
+            return map[type] || 'badge-standard';
+        }
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            const start = (currentPage - 1) * rowsPerPage;
+            const end = start + rowsPerPage;
+            const pageScans = filteredScans.slice(start, end);
+            if (pageScans.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Aucun scan trouvé</td></tr>';
+            } else {
+                tbody.innerHTML = pageScans.map(s => {
+                    const date = new Date(s.timestamp).toLocaleString();
+                    let statusBadge = '';
+                    if (s.is_connection) statusBadge = '<span class="badge badge-info">Connexion</span>';
+                    else if (s.is_duplicate) statusBadge = '<span class="badge badge-warning">Doublon</span>';
+                    else if (s.valid) statusBadge = '<span class="badge badge-success">Valide</span>';
+                    else if (s.is_expired) statusBadge = '<span class="badge badge-danger">Expiré</span>';
+                    else if (s.is_not_yet_valid) statusBadge = '<span class="badge badge-info">Futur</span>';
+                    else statusBadge = '<span class="badge badge-danger">Invalide</span>';
+                    
+                    const type = s.qr_type || 'standard';
+                    const typeClass = getTypeBadgeClass(type);
+                    
+                    // Extraction sécurisée du prix
+                    let priceDisplay = '—';
+                    if (s.price) {
+                        const match = s.price.match(/(\d+(?:[.,]\d+)?)/);
+                        if (match) {
+                            priceDisplay = formatNumber(parseFloat(match[0].replace(',', '.'))) + ' FCFA';
+                        }
+                    }
+                    
+                    return `
+                        <tr>
+                            <td>${date}</td>
+                            <td>${s.event_name || '—'}</td>
+                            <td><span class="badge ${typeClass}">${type}</span></td>
+                            <td>${priceDisplay}</td>
+                            <td>${s.location || '—'}</td>
+                            <td>${statusBadge}</td>
+                            <td style="font-family:monospace; font-size:0.8rem;">${s.event_id ? s.event_id.substring(0,10)+'…' : '—'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+            renderPagination();
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredScans.length / rowsPerPage);
+            const pagination = document.getElementById('pagination');
+            let html = '';
+            for (let i = 1; i <= totalPages; i++) {
+                html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+            }
+            pagination.innerHTML = html;
+        }
+
+        window.goToPage = (page) => {
+            currentPage = page;
+            renderTable();
+        };
+
+        // ==================== ÉVÉNEMENTS ====================
+        function setupEventListeners() {
+            document.querySelectorAll('.filter-group:first-child .filter-tab').forEach(tab => {
+                tab.addEventListener('click', e => {
+                    document.querySelectorAll('.filter-group:first-child .filter-tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    currentFilter = e.target.dataset.filter;
+                    applyFilters();
+                    renderTable();
+                });
+            });
+
+            document.getElementById('searchInput').addEventListener('input', e => {
+                searchTerm = e.target.value;
+                applyFilters();
+                renderTable();
+            });
+
+            document.getElementById('refreshBtn').addEventListener('click', () => loadScans(true));
+            document.getElementById('exportCSV').addEventListener('click', exportCSV);
+            document.getElementById('generateReport').addEventListener('click', generateReport);
+            document.getElementById('saveLocalBtn').addEventListener('click', saveLocal);
+            document.getElementById('loadLocalBtn').addEventListener('click', loadLocal);
+            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+            document.getElementById('deleteAllBtn').addEventListener('click', () => {
+                showConfirmModal(
+                    'Effacer Supabase',
+                    'Êtes-vous sûr de vouloir supprimer TOUTES les données de Supabase ? Cette action est irréversible.',
+                    deleteAllSupabase
+                );
+            });
+            document.getElementById('clearLocalBtn').addEventListener('click', () => {
+                showConfirmModal(
+                    'Vider le stockage local',
+                    'Vider le stockage local (IndexedDB) ? Cette action supprimera toutes les données sauvegardées localement.',
+                    clearLocal
+                );
+            });
+            document.getElementById('exportChartBtn').addEventListener('click', exportChartAsJPG);
+        }
+
+        // ==================== ACTIONS ====================
+        async function deleteAllSupabase() {
+            const btn = document.getElementById('deleteAllBtn');
+            setButtonLoading(btn, true);
+            try {
+                const { error } = await supabaseClient
+                    .from('scans')
+                    .delete()
+                    .neq('id', -1);
+                if (error) throw error;
+                showNotification('Succès', 'Toutes les données ont été effacées.', 'success');
+                await loadScans(false);
+            } catch (e) {
+                console.error(e);
+                showNotification('Erreur', 'Impossible d\'effacer les données : ' + e.message, 'error');
+            } finally {
+                setButtonLoading(btn, false);
+            }
+        }
+
+        async function clearLocal() {
+            const btn = document.getElementById('clearLocalBtn');
+            setButtonLoading(btn, true);
+            try {
+                await LocalDB.clear();
+                showNotification('Succès', 'Stockage local vidé.', 'success');
+            } catch (e) {
+                console.error(e);
+                showNotification('Erreur', 'Échec du vidage local', 'error');
+            } finally {
+                setButtonLoading(btn, false);
+            }
+        }
+
+        async function exportChartAsJPG() {
+            const btn = document.getElementById('exportChartBtn');
+            setButtonLoading(btn, true);
+            try {
+                const chartContainer = document.querySelector('.chart-container');
+                const canvas = await html2canvas(chartContainer, { scale: 2, backgroundColor: null });
+                const link = document.createElement('a');
+                link.download = 'graphique-qrguardian.jpg';
+                link.href = canvas.toDataURL('image/jpeg', 0.95);
+                link.click();
+                showNotification('Succès', 'Graphique exporté en JPG.', 'success');
+            } catch (e) {
+                console.error(e);
+                showNotification('Erreur', 'Échec de l\'export du graphique', 'error');
+            } finally {
+                setButtonLoading(btn, false);
+            }
+        }
+
+        function exportCSV() {
+            const headers = ['Date', 'Événement', 'Type', 'Prix', 'Lieu', 'Statut', 'ID', 'Valide', 'Doublon', 'Expiré', 'Futur'];
+            const rows = filteredScans.map(s => [
+                new Date(s.timestamp).toLocaleString(),
+                s.event_name || '',
+                s.qr_type || 'standard',
+                s.price || '',
+                s.location || '',
+                s.valid ? 'Valide' : (s.is_duplicate ? 'Doublon' : (s.is_expired ? 'Expiré' : (s.is_not_yet_valid ? 'Futur' : 'Invalide'))),
+                s.event_id || '',
+                s.valid ? 'Oui' : 'Non',
+                s.is_duplicate ? 'Oui' : 'Non',
+                s.is_expired ? 'Oui' : 'Non',
+                s.is_not_yet_valid ? 'Oui' : 'Non'
+            ]);
+            const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
+            download(csv, 'scans.csv', 'text/csv');
+        }
+
+        function download(content, fileName, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function generateReport() {
+            const reportWindow = window.open('', '_blank');
+            reportWindow.document.write(`
+                <html>
+                <head><title>Rapport QRGuardian</title><style>body{font-family:Arial;}</style></head>
+                <body>
+                <h1>Rapport des scans</h1>
+                <p>Généré le ${new Date().toLocaleString()}</p>
+                <table border="1" cellpadding="5">
+                    <tr><th>Date</th><th>Événement</th><th>Type</th><th>Prix</th><th>Lieu</th><th>Statut</th></tr>
+                    ${filteredScans.map(s => `<tr>
+                        <td>${new Date(s.timestamp).toLocaleString()}</td>
+                        <td>${s.event_name || ''}</td>
+                        <td>${s.qr_type || 'standard'}</td>
+                        <td>${s.price || ''}</td>
+                        <td>${s.location || ''}</td>
+                        <td>${s.valid ? 'Valide' : s.is_duplicate ? 'Doublon' : s.is_expired ? 'Expiré' : s.is_not_yet_valid ? 'Futur' : 'Invalide'}</td>
+                    </tr>`).join('')}
+                </table>
+                </body></html>
+            `);
+            reportWindow.document.close();
+            reportWindow.print();
+        }
+
+        async function saveLocal() {
+            const btn = document.getElementById('saveLocalBtn');
+            setButtonLoading(btn, true);
+            try {
+                await LocalDB.saveScans(allScans);
+                showNotification('Succès', `${allScans.length} scans sauvegardés localement.`);
+            } catch (e) {
+                console.error(e);
+                showNotification('Erreur', 'Échec de la sauvegarde locale', 'error');
+            } finally {
+                setButtonLoading(btn, false);
+            }
+        }
+
+        async function loadLocal() {
+            const btn = document.getElementById('loadLocalBtn');
+            setButtonLoading(btn, true);
+            try {
+                let localScans = await LocalDB.loadScans();
+                if (localScans.length === 0) {
+                    showNotification('Info', 'Aucune donnée locale trouvée.', 'info');
+                    return;
+                }
+                // Normalisation des types en minuscules
+                localScans = localScans.map(s => {
+                    if (s.qr_type) {
+                        s.qr_type = s.qr_type.toLowerCase();
+                    } else {
+                        s.qr_type = 'standard';
+                    }
+                    return s;
+                });
+                allScans = localScans;
+                applyFilters();
+                updateStats();
+                renderTable();
+                updateChart();
+                generateTypeFilters();
+                showNotification('Succès', `${localScans.length} scans chargés depuis le stockage local.`);
+            } catch (e) {
+                console.error(e);
+                showNotification('Erreur', 'Échec du chargement local', 'error');
+            } finally {
+                setButtonLoading(btn, false);
+            }
+        }
+
+        // ==================== INITIALISATION ====================
+        document.addEventListener('DOMContentLoaded', async () => {
+            initTheme();
+            updateConnectionStatus();
+            await loadScans(true);
+            setupEventListeners();
+            setupRealtime();
+        });
+    </script>
+    <!-- Service Worker -->
+   <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('Service Worker enregistré', reg.scope))
+                    .catch(err => console.error('Erreur Service Worker', err));
+            });
+        }
+   </script>
+</body>
+</html>
