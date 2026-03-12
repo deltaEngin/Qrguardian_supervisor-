@@ -4,8 +4,8 @@
   "description": "Supervision des scans QRGuardian en temps réel",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#2563eb",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "icons": [
     {
       "src": "./icons/icon-192x192.png",
@@ -20,4 +20,5 @@
       "purpose": "any maskable"
     }
   ]
+
 }
