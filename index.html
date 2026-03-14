@@ -847,9 +847,10 @@
             document.getElementById('invalidScans').textContent = invalid;
             document.getElementById('duplicateScans').textContent = duplicate;
 
+            // Calcul du montant total (uniquement les scans valides et non doublons)
             let total = 0;
             allScans.forEach(s => {
-                if (s.price) {
+                if (s.valid && !s.is_duplicate && !s.is_connection && s.price) {
                     const match = s.price.match(/(\d+(?:[.,]\d+)?)/);
                     if (match) total += parseFloat(match[1].replace(',', '.'));
                 }
