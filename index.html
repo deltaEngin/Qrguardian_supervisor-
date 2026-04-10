@@ -214,7 +214,7 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            min-width: 1000px;
+            min-width: 1200px; /* élargi pour la colonne appareil */
         }
         th {
             text-align: left;
@@ -227,7 +227,7 @@
         td {
             padding: 1rem;
             border-bottom: 1px solid var(--border);
-            color: var(--text); /* forcé pour suivre le thème */
+            color: var(--text);
         }
         tr:last-child td { border-bottom: none; }
         .badge {
@@ -241,7 +241,7 @@
         .badge-warning { background: rgba(245,158,11,0.2); color: var(--warning); }
         .badge-info { background: rgba(59,130,246,0.2); color: #3b82f6; }
         
-        /* Badges pour les types de QR (couleurs distinctes) */
+        /* Badges pour les types de QR */
         .badge-standard { background: rgba(107, 114, 128, 0.2); color: #6b7280;}
         .badge-vip { background: rgba(245, 158, 11, 0.2); color: #f59e0b;}
         .badge-vvip { background: rgba(139, 92, 246, 0.2); color: #8b5cf6;}
@@ -444,7 +444,6 @@
                     <p id="totalAmount">0 FCFA</p>
                 </div>
             </div>
-            <!-- Carte : Stockage utilisé -->
             <div class="stat-card" id="storageInfo">
                 <i class="fas fa-database stat-icon"></i>
                 <div class="stat-content">
@@ -470,7 +469,7 @@
                 <div class="filter-tab" data-filter="connection">Connexions</div>
             </div>
             <div class="filter-group" id="typeFilters">
-                <!-- Les filtres de type seront générés dynamiquement -->
+                <!-- généré dynamiquement -->
             </div>
             <div class="search-box">
                 <i class="fas fa-search"></i>
@@ -501,10 +500,11 @@
                         <th>Lieu</th>
                         <th>Statut</th>
                         <th>ID</th>
+                        <th>Appareil</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
-                    <!-- Les lignes seront injectées ici -->
+                    <!-- injecté -->
                 </tbody>
             </table>
         </div>
@@ -545,6 +545,7 @@
         const rowsPerPage = 10;
         let typeChart = null;
         let isLoading = false;
+        let duplicateCheckInterval = null;
 
         // ==================== MODALE ====================
         const modalOverlay = document.getElementById('confirmModal');
@@ -573,7 +574,6 @@
             modalConfirm.addEventListener('click', confirmHandler, { once: true });
             modalCancel.addEventListener('click', cancelHandler, { once: true });
             
-            // Fermer en cliquant sur l'overlay (optionnel)
             modalOverlay.addEventListener('click', function closeOnOverlay(e) {
                 if (e.target === modalOverlay) {
                     modalOverlay.classList.remove('active');
@@ -584,7 +584,7 @@
             }, { once: true });
         }
 
-        // ==================== GESTION DU THÈME ====================
+        // ==================== THÈME ====================
         function initTheme() {
             const savedTheme = localStorage.getItem('supervisor_theme') || 'dark';
             document.body.classList.toggle('light-theme', savedTheme === 'light');
@@ -604,7 +604,7 @@
             icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
         }
 
-        // ==================== GESTION DE LA CONNEXION ====================
+        // ==================== CONNEXION ====================
         function updateConnectionStatus() {
             const statusEl = document.getElementById('connectionStatus');
             if (navigator.onLine) {
@@ -617,15 +617,15 @@
         }
         window.addEventListener('online', () => {
             updateConnectionStatus();
-            showNotification('Connexion rétablie', 'Tentative de rechargement des données...', 'info');
+            showNotification('Connexion rétablie', 'Tentative de rechargement...', 'info');
             loadScans();
         });
         window.addEventListener('offline', () => {
             updateConnectionStatus();
-            showNotification('Connexion perdue', 'Les données affichées peuvent être obsolètes.', 'error');
+            showNotification('Connexion perdue', 'Données potentiellement obsolètes.', 'error');
         });
 
-        // ==================== SPINNERS ====================
+        // ==================== SPINNER ====================
         function setButtonLoading(button, loading) {
             if (loading) {
                 button.disabled = true;
@@ -640,7 +640,7 @@
             }
         }
 
-        // ==================== BASE DE DONNÉES LOCALE (IndexedDB) ====================
+        // ==================== IndexedDB ====================
         class LocalDB {
             static DB_NAME = 'QRSupervisorDB';
             static STORE_NAME = 'scans';
@@ -722,7 +722,105 @@
             }, 5000);
         }
 
-        // ==================== CHARGEMENT DES DONNÉES ====================
+        // ==================== DÉTECTION DOUBLON AMÉLIORÉE ====================
+        async function markAsDuplicateIfNeeded(scan) {
+            if (!scan.event_id || scan.is_connection || scan.is_duplicate) return false;
+            
+            try {
+                // Vérifier existence d'un scan valide non-doublon pour ce event_id
+                const { data: existing, error } = await supabaseClient
+                    .from('scans')
+                    .select('id, timestamp')
+                    .eq('event_id', scan.event_id)
+                    .eq('valid', true)
+                    .eq('is_duplicate', false)
+                    .neq('id', scan.id)
+                    .order('timestamp', { ascending: true })
+                    .limit(1);
+                
+                if (error) {
+                    console.error('Erreur vérification doublon:', error);
+                    return false;
+                }
+                
+                if (existing && existing.length > 0) {
+                    // Marquer ce scan comme doublon
+                    const { error: updateError } = await supabaseClient
+                        .from('scans')
+                        .update({ 
+                            is_duplicate: true, 
+                            valid: false,
+                            duplicate_reason: `Doublon du scan ID ${existing[0].id}`
+                        })
+                        .eq('id', scan.id);
+                    
+                    if (updateError) {
+                        console.error('Erreur mise à jour doublon:', updateError);
+                        return false;
+                    }
+                    
+                    scan.is_duplicate = true;
+                    scan.valid = false;
+                    scan.duplicate_reason = `Doublon du scan ID ${existing[0].id}`;
+                    
+                    showNotification('Doublon bloqué', `QR ${scan.event_id.substring(0,8)}… déjà validé.`, 'info');
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                console.error('Exception markAsDuplicateIfNeeded:', e);
+                return false;
+            }
+        }
+
+        // Nettoyage périodique des doublons (rattrapage)
+        async function cleanupExistingDuplicates(silent = true) {
+            if (allScans.length === 0) return 0;
+            
+            const groups = {};
+            allScans.forEach(scan => {
+                if (!scan.event_id || scan.is_connection) return;
+                if (!groups[scan.event_id]) groups[scan.event_id] = [];
+                groups[scan.event_id].push(scan);
+            });
+            
+            let updatedCount = 0;
+            for (const eventId in groups) {
+                const scans = groups[eventId];
+                scans.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                
+                const firstValid = scans.find(s => s.valid && !s.is_duplicate);
+                if (!firstValid) continue;
+                
+                for (let i = scans.indexOf(firstValid) + 1; i < scans.length; i++) {
+                    const scan = scans[i];
+                    if (scan.valid && !scan.is_duplicate) {
+                        const { error } = await supabaseClient
+                            .from('scans')
+                            .update({ 
+                                is_duplicate: true, 
+                                valid: false,
+                                duplicate_reason: `Doublon automatique (réf: ${firstValid.id})`
+                            })
+                            .eq('id', scan.id);
+                        
+                        if (!error) {
+                            scan.is_duplicate = true;
+                            scan.valid = false;
+                            scan.duplicate_reason = `Doublon automatique (réf: ${firstValid.id})`;
+                            updatedCount++;
+                        }
+                    }
+                }
+            }
+            
+            if (updatedCount > 0 && !silent) {
+                showNotification('Nettoyage', `${updatedCount} doublon(s) corrigé(s).`, 'info');
+            }
+            return updatedCount;
+        }
+
+        // ==================== CHARGEMENT ====================
         async function loadScans(showLoadingSpinner = true) {
             if (isLoading) return;
             isLoading = true;
@@ -735,15 +833,14 @@
                     .order('timestamp', { ascending: false });
                 if (error) throw error;
                 
-                // Normalisation des types en minuscules
                 allScans = (data || []).map(s => {
-                    if (s.qr_type) {
-                        s.qr_type = s.qr_type.toLowerCase();
-                    } else {
-                        s.qr_type = 'standard';
-                    }
+                    if (s.qr_type) s.qr_type = s.qr_type.toLowerCase();
+                    else s.qr_type = 'standard';
                     return s;
                 });
+                
+                // Nettoyage initial (silencieux)
+                await cleanupExistingDuplicates(true);
                 
                 applyFilters();
                 updateStats();
@@ -753,7 +850,7 @@
                 fetchStorageInfo();
                 if (showLoadingSpinner) showNotification('Données chargées', `${allScans.length} scans récupérés.`, 'success');
             } catch (e) {
-                console.error('Erreur chargement scans:', e);
+                console.error('Erreur chargement:', e);
                 showNotification('Erreur', 'Impossible de charger les données', 'error');
             } finally {
                 isLoading = false;
@@ -764,14 +861,19 @@
         function setupRealtime() {
             supabaseClient
                 .channel('scans-channel')
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'scans' }, payload => {
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'scans' }, async (payload) => {
                     const newScan = payload.new;
                     if (newScan.qr_type) {
                         newScan.qr_type = newScan.qr_type.toLowerCase();
                     } else {
                         newScan.qr_type = 'standard';
                     }
+                    
                     allScans.unshift(newScan);
+                    
+                    // Vérification immédiate
+                    await markAsDuplicateIfNeeded(newScan);
+                    
                     applyFilters();
                     updateStats();
                     renderTable();
@@ -782,28 +884,39 @@
                 .subscribe();
         }
 
+        // Vérification périodique toutes les 30 secondes
+        function startPeriodicDuplicateCheck() {
+            if (duplicateCheckInterval) clearInterval(duplicateCheckInterval);
+            duplicateCheckInterval = setInterval(async () => {
+                if (document.hidden) return; // ne pas exécuter si l'onglet n'est pas actif
+                const count = await cleanupExistingDuplicates(true);
+                if (count > 0) {
+                    applyFilters();
+                    updateStats();
+                    renderTable();
+                    updateChart();
+                }
+            }, 30000);
+        }
+
         // ==================== FILTRES ====================
         function applyFilters() {
             let filtered = allScans;
-            if (currentFilter === 'valid') {
-                filtered = filtered.filter(s => s.valid && !s.is_duplicate);
-            } else if (currentFilter === 'invalid') {
-                filtered = filtered.filter(s => !s.valid && !s.is_duplicate && !s.is_connection);
-            } else if (currentFilter === 'duplicate') {
-                filtered = filtered.filter(s => s.is_duplicate);
-            } else if (currentFilter === 'connection') {
-                filtered = filtered.filter(s => s.is_connection);
-            }
-            if (currentTypeFilter !== 'all') {
-                filtered = filtered.filter(s => s.qr_type === currentTypeFilter);
-            }
+            if (currentFilter === 'valid') filtered = filtered.filter(s => s.valid && !s.is_duplicate);
+            else if (currentFilter === 'invalid') filtered = filtered.filter(s => !s.valid && !s.is_duplicate && !s.is_connection);
+            else if (currentFilter === 'duplicate') filtered = filtered.filter(s => s.is_duplicate);
+            else if (currentFilter === 'connection') filtered = filtered.filter(s => s.is_connection);
+            
+            if (currentTypeFilter !== 'all') filtered = filtered.filter(s => s.qr_type === currentTypeFilter);
+            
             if (searchTerm) {
                 const term = searchTerm.toLowerCase();
                 filtered = filtered.filter(s => 
                     (s.event_name && s.event_name.toLowerCase().includes(term)) ||
                     (s.location && s.location.toLowerCase().includes(term)) ||
                     (s.event_id && s.event_id.toLowerCase().includes(term)) ||
-                    (s.security_code && s.security_code.toLowerCase().includes(term))
+                    (s.security_code && s.security_code.toLowerCase().includes(term)) ||
+                    (s.ip_address && s.ip_address.includes(term))
                 );
             }
             filteredScans = filtered;
@@ -834,7 +947,7 @@
             if (defaultTab) defaultTab.classList.add('active');
         }
 
-        // ==================== STATISTIQUES ====================
+        // ==================== STATS ====================
         function formatNumber(x) {
             return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
         }
@@ -847,7 +960,6 @@
             document.getElementById('invalidScans').textContent = invalid;
             document.getElementById('duplicateScans').textContent = duplicate;
 
-            // Calcul du montant total (uniquement les scans valides et non doublons)
             let total = 0;
             allScans.forEach(s => {
                 if (s.valid && !s.is_duplicate && !s.is_connection && s.price) {
@@ -856,10 +968,9 @@
                 }
             });
             document.getElementById('totalAmount').textContent = formatNumber(Math.round(total)) + ' FCFA';
-            document.getElementById('lastUpdate').textContent = 'Dernière mise à jour : ' + new Date().toLocaleTimeString();
+            document.getElementById('lastUpdate').textContent = 'MàJ : ' + new Date().toLocaleTimeString();
         }
 
-        // ==================== STOCKAGE ====================
         async function fetchStorageInfo() {
             try {
                 const { data, error } = await supabaseClient.rpc('get_table_size');
@@ -871,7 +982,7 @@
                 document.querySelector('#storageInfo p').textContent = `${sizeKB} Ko (${sizeMB} Mo)`;
                 document.querySelector('#storageRows').textContent = `${rows} lignes`;
             } catch (e) {
-                console.error('Erreur récupération taille stockage:', e);
+                console.error('Erreur taille stockage:', e);
                 document.querySelector('#storageInfo p').textContent = 'Non disponible';
                 document.querySelector('#storageRows').textContent = 'Vérifier fonction SQL';
             }
@@ -927,13 +1038,24 @@
             };
             return map[type] || 'badge-standard';
         }
+
+        function formatDeviceInfo(scan) {
+            const ip = scan.ip_address || '';
+            const ua = scan.user_agent || '';
+            if (!ip && !ua) return '—';
+            // Version courte : IP puis début UA
+            let shortUA = ua;
+            if (ua.length > 30) shortUA = ua.substring(0, 27) + '…';
+            return ip ? `${ip} ${shortUA ? '| ' + shortUA : ''}` : shortUA;
+        }
+
         function renderTable() {
             const tbody = document.getElementById('tableBody');
             const start = (currentPage - 1) * rowsPerPage;
             const end = start + rowsPerPage;
             const pageScans = filteredScans.slice(start, end);
             if (pageScans.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Aucun scan trouvé</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Aucun scan trouvé</td></tr>';
             } else {
                 tbody.innerHTML = pageScans.map(s => {
                     const date = new Date(s.timestamp).toLocaleString();
@@ -948,14 +1070,13 @@
                     const type = s.qr_type || 'standard';
                     const typeClass = getTypeBadgeClass(type);
                     
-                    // Extraction sécurisée du prix
                     let priceDisplay = '—';
                     if (s.price) {
                         const match = s.price.match(/(\d+(?:[.,]\d+)?)/);
-                        if (match) {
-                            priceDisplay = formatNumber(parseFloat(match[0].replace(',', '.'))) + ' FCFA';
-                        }
+                        if (match) priceDisplay = formatNumber(parseFloat(match[0].replace(',', '.'))) + ' FCFA';
                     }
+                    
+                    const deviceInfo = formatDeviceInfo(s);
                     
                     return `
                         <tr>
@@ -966,6 +1087,7 @@
                             <td>${s.location || '—'}</td>
                             <td>${statusBadge}</td>
                             <td style="font-family:monospace; font-size:0.8rem;">${s.event_id ? s.event_id.substring(0,10)+'…' : '—'}</td>
+                            <td style="font-size:0.75rem; color: var(--text-muted);" title="${s.ip_address || ''} | ${s.user_agent || ''}">${deviceInfo}</td>
                         </tr>
                     `;
                 }).join('');
@@ -1013,18 +1135,10 @@
             document.getElementById('loadLocalBtn').addEventListener('click', loadLocal);
             document.getElementById('themeToggle').addEventListener('click', toggleTheme);
             document.getElementById('deleteAllBtn').addEventListener('click', () => {
-                showConfirmModal(
-                    'Effacer Supabase',
-                    'Êtes-vous sûr de vouloir supprimer TOUTES les données de Supabase ? Cette action est irréversible.',
-                    deleteAllSupabase
-                );
+                showConfirmModal('Effacer Supabase', 'Supprimer TOUTES les données ? Irréversible.', deleteAllSupabase);
             });
             document.getElementById('clearLocalBtn').addEventListener('click', () => {
-                showConfirmModal(
-                    'Vider le stockage local',
-                    'Vider le stockage local (IndexedDB) ? Cette action supprimera toutes les données sauvegardées localement.',
-                    clearLocal
-                );
+                showConfirmModal('Vider le stockage local', 'Vider IndexedDB ?', clearLocal);
             });
             document.getElementById('exportChartBtn').addEventListener('click', exportChartAsJPG);
         }
@@ -1034,16 +1148,13 @@
             const btn = document.getElementById('deleteAllBtn');
             setButtonLoading(btn, true);
             try {
-                const { error } = await supabaseClient
-                    .from('scans')
-                    .delete()
-                    .neq('id', -1);
+                const { error } = await supabaseClient.from('scans').delete().neq('id', -1);
                 if (error) throw error;
-                showNotification('Succès', 'Toutes les données ont été effacées.', 'success');
+                showNotification('Succès', 'Données effacées.', 'success');
                 await loadScans(false);
             } catch (e) {
                 console.error(e);
-                showNotification('Erreur', 'Impossible d\'effacer les données : ' + e.message, 'error');
+                showNotification('Erreur', 'Échec suppression : ' + e.message, 'error');
             } finally {
                 setButtonLoading(btn, false);
             }
@@ -1056,8 +1167,7 @@
                 await LocalDB.clear();
                 showNotification('Succès', 'Stockage local vidé.', 'success');
             } catch (e) {
-                console.error(e);
-                showNotification('Erreur', 'Échec du vidage local', 'error');
+                showNotification('Erreur', 'Échec vidage local', 'error');
             } finally {
                 setButtonLoading(btn, false);
             }
@@ -1073,17 +1183,16 @@
                 link.download = 'graphique-qrguardian.jpg';
                 link.href = canvas.toDataURL('image/jpeg', 0.95);
                 link.click();
-                showNotification('Succès', 'Graphique exporté en JPG.', 'success');
+                showNotification('Succès', 'Graphique exporté.', 'success');
             } catch (e) {
-                console.error(e);
-                showNotification('Erreur', 'Échec de l\'export du graphique', 'error');
+                showNotification('Erreur', 'Échec export', 'error');
             } finally {
                 setButtonLoading(btn, false);
             }
         }
 
         function exportCSV() {
-            const headers = ['Date', 'Événement', 'Type', 'Prix', 'Lieu', 'Statut', 'ID', 'Valide', 'Doublon', 'Expiré', 'Futur'];
+            const headers = ['Date', 'Événement', 'Type', 'Prix', 'Lieu', 'Statut', 'ID', 'IP', 'User-Agent'];
             const rows = filteredScans.map(s => [
                 new Date(s.timestamp).toLocaleString(),
                 s.event_name || '',
@@ -1092,10 +1201,8 @@
                 s.location || '',
                 s.valid ? 'Valide' : (s.is_duplicate ? 'Doublon' : (s.is_expired ? 'Expiré' : (s.is_not_yet_valid ? 'Futur' : 'Invalide'))),
                 s.event_id || '',
-                s.valid ? 'Oui' : 'Non',
-                s.is_duplicate ? 'Oui' : 'Non',
-                s.is_expired ? 'Oui' : 'Non',
-                s.is_not_yet_valid ? 'Oui' : 'Non'
+                s.ip_address || '',
+                s.user_agent || ''
             ]);
             const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
             download(csv, 'scans.csv', 'text/csv');
@@ -1114,23 +1221,15 @@
         function generateReport() {
             const reportWindow = window.open('', '_blank');
             reportWindow.document.write(`
-                <html>
-                <head><title>Rapport QRGuardian</title><style>body{font-family:Arial;}</style></head>
-                <body>
-                <h1>Rapport des scans</h1>
-                <p>Généré le ${new Date().toLocaleString()}</p>
-                <table border="1" cellpadding="5">
-                    <tr><th>Date</th><th>Événement</th><th>Type</th><th>Prix</th><th>Lieu</th><th>Statut</th></tr>
-                    ${filteredScans.map(s => `<tr>
-                        <td>${new Date(s.timestamp).toLocaleString()}</td>
-                        <td>${s.event_name || ''}</td>
-                        <td>${s.qr_type || 'standard'}</td>
-                        <td>${s.price || ''}</td>
-                        <td>${s.location || ''}</td>
-                        <td>${s.valid ? 'Valide' : s.is_duplicate ? 'Doublon' : s.is_expired ? 'Expiré' : s.is_not_yet_valid ? 'Futur' : 'Invalide'}</td>
-                    </tr>`).join('')}
-                </table>
-                </body></html>
+                <html><head><title>Rapport QRGuardian</title></head>
+                <body><h1>Rapport des scans</h1><p>${new Date().toLocaleString()}</p>
+                <table border="1"><tr><th>Date</th><th>Événement</th><th>Type</th><th>Prix</th><th>Lieu</th><th>Statut</th><th>Appareil</th></tr>
+                ${filteredScans.map(s => `<tr>
+                    <td>${new Date(s.timestamp).toLocaleString()}</td><td>${s.event_name||''}</td><td>${s.qr_type||'standard'}</td>
+                    <td>${s.price||''}</td><td>${s.location||''}</td><td>${s.valid?'Valide':s.is_duplicate?'Doublon':s.is_expired?'Expiré':s.is_not_yet_valid?'Futur':'Invalide'}</td>
+                    <td>${s.ip_address||''} ${s.user_agent||''}</td>
+                </tr>`).join('')}
+                </table></body></html>
             `);
             reportWindow.document.close();
             reportWindow.print();
@@ -1143,8 +1242,7 @@
                 await LocalDB.saveScans(allScans);
                 showNotification('Succès', `${allScans.length} scans sauvegardés localement.`);
             } catch (e) {
-                console.error(e);
-                showNotification('Erreur', 'Échec de la sauvegarde locale', 'error');
+                showNotification('Erreur', 'Échec sauvegarde locale', 'error');
             } finally {
                 setButtonLoading(btn, false);
             }
@@ -1156,51 +1254,53 @@
             try {
                 let localScans = await LocalDB.loadScans();
                 if (localScans.length === 0) {
-                    showNotification('Info', 'Aucune donnée locale trouvée.', 'info');
+                    showNotification('Info', 'Aucune donnée locale.', 'info');
                     return;
                 }
-                // Normalisation des types en minuscules
                 localScans = localScans.map(s => {
-                    if (s.qr_type) {
-                        s.qr_type = s.qr_type.toLowerCase();
-                    } else {
-                        s.qr_type = 'standard';
-                    }
+                    if (s.qr_type) s.qr_type = s.qr_type.toLowerCase();
+                    else s.qr_type = 'standard';
                     return s;
                 });
                 allScans = localScans;
+                await cleanupExistingDuplicates(true);
                 applyFilters();
                 updateStats();
                 renderTable();
                 updateChart();
                 generateTypeFilters();
-                showNotification('Succès', `${localScans.length} scans chargés depuis le stockage local.`);
+                showNotification('Succès', `${localScans.length} scans chargés du local.`);
             } catch (e) {
-                console.error(e);
-                showNotification('Erreur', 'Échec du chargement local', 'error');
+                showNotification('Erreur', 'Échec chargement local', 'error');
             } finally {
                 setButtonLoading(btn, false);
             }
         }
 
-        // ==================== INITIALISATION ====================
+        // ==================== INIT ====================
         document.addEventListener('DOMContentLoaded', async () => {
             initTheme();
             updateConnectionStatus();
             await loadScans(true);
             setupEventListeners();
             setupRealtime();
+            startPeriodicDuplicateCheck();
+        });
+
+        // Nettoyage intervalle au déchargement
+        window.addEventListener('beforeunload', () => {
+            if (duplicateCheckInterval) clearInterval(duplicateCheckInterval);
         });
     </script>
     <!-- Service Worker -->
-   <script>
+    <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('service-worker.js')
-                    .then(reg => console.log('Service Worker enregistré', reg.scope))
-                    .catch(err => console.error('Erreur Service Worker', err));
+                    .then(reg => console.log('SW enregistré', reg.scope))
+                    .catch(err => console.error('Erreur SW', err));
             });
         }
-   </script>
+    </script>
 </body>
 </html>
